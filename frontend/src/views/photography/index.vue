@@ -18,6 +18,21 @@
       </article>
     </div>
 
+    <section class="todo-panel">
+      <h3 class="todo-title">影像待办</h3>
+      <p v-if="loadKind === 'failed'" class="boundary-banner failed">
+        {{ loadMessage }}
+        <button class="link" type="button" @click="reload">重试</button>
+      </p>
+      <p v-else-if="loadKind !== 'ok'" class="boundary-banner">{{ loadMessage }}</p>
+      <ul v-else-if="photoTodos.length" class="todo-list">
+        <li v-for="todo in photoTodos" :key="todo.featureCode">
+          <strong>{{ todo.featureCode }}</strong>（{{ todo.status }}）：{{ todo.note }}
+        </li>
+      </ul>
+      <p v-else class="todo-empty">影像待办为空：当前没有待拍遗迹</p>
+    </section>
+
     <p class="status-legend">
       <span v-for="item in statusSummary" :key="item.status" class="legend-item">
         {{ item.status }}：{{ item.count }}
@@ -79,7 +94,9 @@ import {
   moduleMeta,
   runAction as applyAction,
 } from '@/api/local-service'
+import { useFeatureWorkability } from '@/composables/use-feature-workability'
 import type { EntryRow } from '@/data/types'
+import { photographyTodos } from '@/domain/feature-workability'
 
 const meta = moduleMeta('photography')
 const columns = ["影像编号", "拍摄对象", "拍摄类型", "拍摄方位", "拍摄日期", "摄影人员", "存储路径", "影像状态"]
@@ -87,7 +104,10 @@ const actions = ["分配编号", "提交归档", "安排重拍"]
 const statuses = ["已拍摄", "已编号", "已归档", "需重拍"]
 const stats = [{"label": "影像总数", "value": 0}, {"label": "已归档数", "value": 0}, {"label": "待编号数", "value": 0}]
 
+const { snapshot, loadKind, loadMessage, refresh } = useFeatureWorkability()
+
 const rows = ref<EntryRow[]>([])
+const allRows = ref<EntryRow[]>([])
 const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
@@ -98,6 +118,9 @@ const statusSummary = computed(() =>
     count: rows.value.filter((row) => String(row.status) === status).length,
   })),
 )
+
+// 影像待办与遗迹列表、绘图附件读同一份阶段判定，不在这里另算一套
+const photoTodos = computed(() => photographyTodos(snapshot.value.items, allRows.value))
 
 function resetFilters() {
   filters.value = {}
@@ -124,10 +147,13 @@ function runAction(action: string, row: EntryRow) {
 
 function reload() {
   errorMessage.value = ''
+  refresh()
   try {
     const payload = listEntries(meta.key, filters.value)
     rows.value = payload.items
     total.value = payload.total
+    // 待办覆盖判断要用全量影像，不受筛选条件影响
+    allRows.value = listEntries(meta.key).items
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '影像记录列表读取失败'
   }

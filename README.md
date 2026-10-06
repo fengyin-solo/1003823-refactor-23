@@ -68,4 +68,10 @@ npm run build
 - 字段、状态、动作与流转目标集中在 `frontend/src/data/modules.ts`；示例数据在
   `frontend/src/data/seed.ts`。
 - 状态流转只允许在 `local-service.ts` 里改，页面组件不做业务判断。
+- 遗迹「可清理 / 可测绘 / 可解剖」的阶段判定只有一份，在
+  `frontend/src/domain/feature-workability.ts`：遗迹列表、影像待办、绘图附件都读它的结果，
+  改阶段规则只改这个文件。历史遗迹按登记时的口径版本解释；现场结论与复核结论冲突时以复核为准；
+  缺开口层位的旧数据加载时自动回填（补不上标「待补录」并拦住相关阶段）。
+- 空态、缺失、异常、失败（可重试）按 `frontend/src/api/boundary.ts` 的统一边界处理；
+  写入先落盘后换内存，任一路径失败都不会留下写了一半的状态。
 - 想回到初始数据：清掉浏览器里 `field-archaeology-digital:entries` 这一项，或调用 `resetModule(模块)`。

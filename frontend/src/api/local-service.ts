@@ -1,6 +1,14 @@
+import { empty, failed, ok, type Boundary } from '@/api/boundary'
 import { MODULE_BY_KEY } from '@/data/modules'
-import { allRows, listRows, resetRows, saveRows } from '@/data/local-store'
+import { allRows, listRows, resetRows, saveRows, storeVersion } from '@/data/local-store'
 import type { ActionResult, EntryRow, ModuleMeta, OverviewResult, PageResult } from '@/data/types'
+import {
+  assessFeature,
+  drawingGate,
+  featureActionStage,
+  migrateFeatureRows,
+  type FeatureWorkabilitySnapshot,
+} from '@/domain/feature-workability'
 
 // 会写进数据的「往回走」动作：命中就把这条记录标成异常态，看板上能一眼看出来。
 const NEGATIVE_ACTIONS = ['撤销', '作废', '拒绝', '驳回', '停用', '忽略', '下线', '回滚']
@@ -28,6 +36,69 @@ export function listEntries(key: string, filters: Record<string, string> = {}): 
   return { items: matched, total: matched.length, page: 1, size: matched.length }
 }
 
+// —— 遗迹阶段判定：全系统只有这一份，遗迹列表、影像待办、绘图附件都从这里读 ——
+
+let migratedVersion = -1
+let snapshotCache: { version: number; snapshot: FeatureWorkabilitySnapshot } | null = null
+
+// 旧数据回填（口径版本、开口层位）：先算好整份结果再一次性提交，
+// 任何一行处理失败都不会落盘，下次调用自动重试，不会写出半新半旧的数据。
+function ensureFeatureMigration(): void {
+  if (migratedVersion === storeVersion()) {
+    return
+  }
+  const migration = migrateFeatureRows(listRows('feature'), listRows('trench'))
+  if (migration.changed) {
+    saveRows('feature', migration.rows)
+  }
+  migratedVersion = storeVersion()
+}
+
+export function loadFeatureWorkability(): Boundary<FeatureWorkabilitySnapshot> {
+  try {
+    ensureFeatureMigration()
+    if (snapshotCache && snapshotCache.version === storeVersion()) {
+      return ok(snapshotCache.snapshot)
+    }
+    const items = listRows('feature').map(assessFeature)
+    const snapshot: FeatureWorkabilitySnapshot = {
+      items,
+      byId: new Map(items.map((item) => [item.id, item])),
+      byCode: new Map(items.filter((item) => item.code !== '').map((item) => [item.code, item])),
+      backfilledCount: items.filter((item) => item.openingStratumBackfilled).length,
+      abnormalCount: items.filter((item) => item.phase === 'unknown').length,
+    }
+    snapshotCache = { version: storeVersion(), snapshot }
+    if (items.length === 0) {
+      return empty('暂无遗迹单位数据，阶段判定为空')
+    }
+    return ok(snapshot)
+  } catch (error) {
+    return failed(`遗迹阶段判定加载失败：${error instanceof Error ? error.message : '未知错误'}`, true)
+  }
+}
+
+// 阶段守卫：遗迹动作与绘图提交校核都过同一份判定，返回 null 表示放行。
+function guardStageAction(key: string, row: EntryRow, action: string): string | null {
+  if (key === 'feature') {
+    const stage = featureActionStage(action)
+    if (!stage) {
+      return null
+    }
+    const eligibility = assessFeature(row).stages[stage]
+    return eligibility.allowed ? null : eligibility.reason
+  }
+  if (key === 'drawing' && action === '提交校核') {
+    const result = loadFeatureWorkability()
+    if (result.kind === 'failed') {
+      return `${result.message}，请重试`
+    }
+    const gate = drawingGate(row, result.kind === 'ok' ? result.value.byCode : new Map())
+    return gate.allowed ? null : gate.reason
+  }
+  return null
+}
+
 export function runAction(key: string, id: number, action: string): ActionResult {
   const meta = moduleMeta(key)
   const target = meta.actionTargets[action]
@@ -43,6 +114,15 @@ export function runAction(key: string, id: number, action: string): ActionResult
   if (current === target) {
     return { ok: false, message: `${meta.entity}已经是「${target}」，不用重复操作` }
   }
+  let blocked: string | null
+  try {
+    blocked = guardStageAction(key, rows[index], action)
+  } catch (error) {
+    return { ok: false, message: `阶段判定失败：${error instanceof Error ? error.message : '未知错误'}，数据未变更，请重试` }
+  }
+  if (blocked) {
+    return { ok: false, message: blocked }
+  }
   const lastStatus = meta.statuses[meta.statuses.length - 1]
   const updated: EntryRow = {
     ...rows[index],
@@ -52,7 +132,12 @@ export function runAction(key: string, id: number, action: string): ActionResult
   }
   const next = [...rows]
   next[index] = updated
-  saveRows(key, next)
+  try {
+    saveRows(key, next)
+  } catch (error) {
+    // 落盘失败：内存与存储都保持原样，调用方可以安全重试
+    return { ok: false, message: `${meta.entity}${action}写入失败，数据未变更，请重试` }
+  }
   return { ok: true, message: `${meta.entity}已${action}，当前状态「${target}」` }
 }
 

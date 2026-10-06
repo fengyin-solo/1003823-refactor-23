@@ -18,6 +18,12 @@
       </article>
     </div>
 
+    <p v-if="loadKind === 'failed'" class="boundary-banner failed">
+      {{ loadMessage }}
+      <button class="link" type="button" @click="reload">重试</button>
+    </p>
+    <p v-else-if="loadKind !== 'ok'" class="boundary-banner">{{ loadMessage }}</p>
+
     <p class="status-legend">
       <span v-for="item in statusSummary" :key="item.status" class="legend-item">
         {{ item.status }}：{{ item.count }}
@@ -43,7 +49,17 @@
       </thead>
       <tbody>
         <tr v-for="row in rows" :key="String(row.id)">
-          <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
+          <td v-for="column in columns" :key="column">
+            {{ row[column] ?? '—' }}
+            <span
+              v-if="column === '绘图对象' && attachmentOf(row).text"
+              class="ref-badge"
+              :class="attachmentOf(row).kind"
+              :title="attachmentOf(row).title"
+            >
+              {{ attachmentOf(row).text }}
+            </span>
+          </td>
           <td>{{ row.status }}</td>
           <td class="row-actions">
             <button
@@ -51,6 +67,8 @@
               :key="action"
               class="link"
               type="button"
+              :disabled="action === '提交校核' && !submitGate(row).allowed"
+              :title="action === '提交校核' ? submitGate(row).reason : ''"
               @click="runAction(action, row)"
             >
               {{ action }}
@@ -79,13 +97,17 @@ import {
   moduleMeta,
   runAction as applyAction,
 } from '@/api/local-service'
+import { useFeatureWorkability } from '@/composables/use-feature-workability'
 import type { EntryRow } from '@/data/types'
+import { drawingGate, type StageEligibility } from '@/domain/feature-workability'
 
 const meta = moduleMeta('drawing')
 const columns = ["图纸编号", "绘图对象", "绘图类型", "比例尺", "绘图人", "校核人", "完成日期", "图纸状态"]
 const actions = ["提交校核", "确认校核", "退回修改"]
 const statuses = ["绘制中", "待校核", "已校核", "已数字化", "需修改"]
 const stats = [{"label": "图纸总数", "value": 0}, {"label": "已校核数", "value": 0}, {"label": "待校核数", "value": 0}]
+
+const { snapshot, loadKind, loadMessage, refresh } = useFeatureWorkability()
 
 const rows = ref<EntryRow[]>([])
 const total = ref(0)
@@ -98,6 +120,27 @@ const statusSummary = computed(() =>
     count: rows.value.filter((row) => String(row.status) === status).length,
   })),
 )
+
+// 绘图附件：绘图对象关联到遗迹时，亮出遗迹阶段；缺失 / 异常按统一边界标记
+function attachmentOf(row: EntryRow): { kind: string; text: string; title: string } {
+  const target = String(row['绘图对象'] ?? '').trim()
+  if (!target) {
+    return { kind: 'missing', text: '对象缺失', title: '绘图对象缺失，不能提交校核' }
+  }
+  const item = snapshot.value.byCode.get(target)
+  if (!item) {
+    return { kind: '', text: '', title: '' } // 非遗迹对象不标注
+  }
+  if (item.phase === 'unknown') {
+    return { kind: 'abnormal', text: '状态异常', title: `关联遗迹 ${target} 状态无法识别` }
+  }
+  return { kind: 'ok', text: `遗迹·${item.status}`, title: `关联遗迹 ${target}，当前「${item.status}」` }
+}
+
+// 提交校核闸门与遗迹列表、影像待办读同一份阶段判定
+function submitGate(row: EntryRow): StageEligibility {
+  return drawingGate(row, snapshot.value.byCode)
+}
 
 function resetFilters() {
   filters.value = {}
@@ -124,6 +167,7 @@ function runAction(action: string, row: EntryRow) {
 
 function reload() {
   errorMessage.value = ''
+  refresh()
   try {
     const payload = listEntries(meta.key, filters.value)
     rows.value = payload.items
