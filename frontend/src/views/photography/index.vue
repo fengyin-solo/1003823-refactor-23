@@ -2,136 +2,154 @@
   <section class="page" data-module="photography">
     <header class="page-head">
       <div>
-        <h2>影像记录管理</h2>
-        <p class="page-desc">维护影像档案，围绕影像编号、拍摄对象、拍摄类型、拍摄方位做登记、筛选与状态流转。</p>
+        <h2>影像记录 · 待办</h2>
+        <p class="page-desc">
+          影像齐备度与遗迹列表读同一份策略快照：缺影像、待编号、需重拍自动汇入待办，
+          未关联遗迹的影像单独隔离，不在遗迹口径里误算。
+        </p>
       </div>
       <div class="page-actions">
-        <button class="btn primary" type="button" @click="openCreate">登记影像档案</button>
-        <button class="btn" type="button" @click="exportRows">导出影像记录清单</button>
+        <button class="btn" type="button" @click="retry">重新加载</button>
+        <button class="btn ghost" type="button" @click="reset">重置工作区</button>
       </div>
     </header>
 
-    <div class="stat-row">
-      <article v-for="item in stats" :key="item.label" class="stat-card">
-        <span class="stat-label">{{ item.label }}</span>
-        <strong class="stat-value">{{ item.value }}</strong>
-      </article>
-    </div>
+    <WorkspaceStateBanner
+      :error-message="errorMessage"
+      :notice="notice"
+      :is-empty="!errorMessage && !hasData"
+      empty-text="暂无遗迹单位数据，影像待办无法归集"
+      @retry="retry"
+      @reset="reset"
+      @clear-notice="clearNotice"
+    />
 
-    <p class="status-legend">
-      <span v-for="item in statusSummary" :key="item.status" class="legend-item">
-        {{ item.status }}：{{ item.count }}
-      </span>
-    </p>
+    <template v-if="snapshot && hasData">
+      <div class="stat-row">
+        <article class="stat-card">
+          <span class="stat-label">影像档案总数</span>
+          <strong class="stat-value">{{ snapshot.photos.length }}</strong>
+        </article>
+        <article class="stat-card" :class="{ 'stat-warn': snapshot.stats.photoTodo > 0 }">
+          <span class="stat-label">影像待办遗迹</span>
+          <strong class="stat-value">{{ snapshot.stats.photoTodo }}</strong>
+        </article>
+        <article class="stat-card" :class="{ 'stat-warn': snapshot.unlinkedPhotos.length > 0 }">
+          <span class="stat-label">未关联影像</span>
+          <strong class="stat-value">{{ snapshot.unlinkedPhotos.length }}</strong>
+        </article>
+      </div>
 
-    <form class="filter-bar" @submit.prevent="reload">
-      <label v-for="field in filterFields" :key="field" class="filter-item">
-        <span>{{ field }}</span>
-        <input v-model="filters[field]" :placeholder="`按${field}检索`" />
-      </label>
-      <button class="btn" type="submit">查询</button>
-      <button class="btn ghost" type="button" @click="resetFilters">重置条件</button>
-    </form>
+      <h3 class="ws-section-title">按遗迹归集的影像待办</h3>
+      <table class="data-table ws-table">
+        <thead>
+          <tr>
+            <th>遗迹编号</th>
+            <th>阶段（口径）</th>
+            <th>影像状态</th>
+            <th>关联影像</th>
+            <th>待办说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in snapshot.features" :key="row.record.id" :class="{ 'row-abnormal': !row.photos.ready }">
+            <td>
+              {{ row.record.code }}
+              <span v-if="row.historical" class="tag tag-history">历史</span>
+            </td>
+            <td>{{ row.stageLabel }} · {{ row.policyLabel }}</td>
+            <td :class="row.photos.ready ? 'att-ok' : 'att-bad'">
+              {{ labels.photoStateText(row.photos.state) }}
+            </td>
+            <td class="ws-att-list">
+              <span v-if="!row.photos.items.length" class="att-bad">无关联影像</span>
+              <span v-for="photo in row.photos.items" :key="photo.id" class="ws-chip">
+                {{ photo.code }}（{{ photo.status }}）
+              </span>
+            </td>
+            <td>{{ row.photos.ready ? '—' : photoTodoText(row.photos.state) }}</td>
+          </tr>
+        </tbody>
+      </table>
 
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th v-for="column in columns" :key="column">{{ column }}</th>
-          <th>当前状态</th>
-          <th>可执行动作</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="row in rows" :key="String(row.id)">
-          <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
-          <td>{{ row.status }}</td>
-          <td class="row-actions">
-            <button
-              v-for="action in actions"
-              :key="action"
-              class="link"
-              type="button"
-              @click="runAction(action, row)"
-            >
-              {{ action }}
-            </button>
-          </td>
-        </tr>
-        <tr v-if="!rows.length">
-          <td :colspan="columns.length + 2" class="empty-state">暂无影像记录数据，可先登记影像档案</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <footer class="page-foot">
-      <span>共 {{ total }} 条影像记录记录</span>
-      <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
-    </footer>
+      <h3 class="ws-section-title">影像档案处理</h3>
+      <table class="data-table ws-table">
+        <thead>
+          <tr>
+            <th>影像编号</th>
+            <th>关联遗迹</th>
+            <th>类型 / 方位</th>
+            <th>拍摄日期</th>
+            <th>摄影人员</th>
+            <th>当前状态</th>
+            <th>可执行动作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="photo in photoRows" :key="photo.id" :class="{ 'row-warn': photo.status === '需重拍' }">
+            <td>{{ photo.code }}</td>
+            <td>
+              <span v-if="isLinked(photo.featureCode)">{{ photo.featureCode }}</span>
+              <span v-else class="tag tag-warn">未关联·待补遗迹</span>
+            </td>
+            <td>{{ photo.kind || '—' }} / {{ photo.bearing || '—' }}</td>
+            <td>{{ photo.shotAt || '—' }}</td>
+            <td>{{ photo.operator || '—' }}</td>
+            <td>{{ photo.status }}</td>
+            <td class="row-actions">
+              <button class="link" type="button" :disabled="photo.status !== '已拍摄'" @click="runPhoto(photo.id, '分配编号')">分配编号</button>
+              <button class="link" type="button" :disabled="photo.status !== '已编号'" @click="runPhoto(photo.id, '提交归档')">提交归档</button>
+              <button class="link" type="button" :disabled="photo.status === '需重拍'" @click="runPhoto(photo.id, '安排重拍')">安排重拍</button>
+            </td>
+          </tr>
+          <tr v-if="!photoRows.length">
+            <td colspan="7" class="empty-state">暂无影像档案</td>
+          </tr>
+        </tbody>
+      </table>
+    </template>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 
-import {
-  downloadEntries,
-  listEntries,
-  moduleMeta,
-  runAction as applyAction,
-} from '@/api/local-service'
-import type { EntryRow } from '@/data/types'
+import WorkspaceStateBanner from '@/components/WorkspaceStateBanner.vue'
+import { useWorkspace, useWorkspaceLabels } from '@/composables/useWorkspace'
+import type { PhotoReadinessState } from '@/data/workspace/types'
 
-const meta = moduleMeta('photography')
-const columns = ["影像编号", "拍摄对象", "拍摄类型", "拍摄方位", "拍摄日期", "摄影人员", "存储路径", "影像状态"]
-const actions = ["分配编号", "提交归档", "安排重拍"]
-const statuses = ["已拍摄", "已编号", "已归档", "需重拍"]
-const stats = [{"label": "影像总数", "value": 0}, {"label": "已归档数", "value": 0}, {"label": "待编号数", "value": 0}]
+const {
+  snapshot,
+  errorMessage,
+  notice,
+  hasData,
+  refresh,
+  retry,
+  reset,
+  runPhoto,
+  clearNotice,
+} = useWorkspace()
 
-const rows = ref<EntryRow[]>([])
-const total = ref(0)
-const errorMessage = ref('')
-const filters = ref<Record<string, string>>({})
-const filterFields = columns.slice(0, 3)
-const statusSummary = computed(() =>
-  statuses.map((status: string) => ({
-    status,
-    count: rows.value.filter((row) => String(row.status) === status).length,
-  })),
+const labels = useWorkspaceLabels()
+
+const photoRows = computed(() => snapshot.value?.photos ?? [])
+
+const linkedCodes = computed(
+  () => new Set((snapshot.value?.features ?? []).map((f) => f.record.code)),
 )
-
-function resetFilters() {
-  filters.value = {}
-  reload()
+function isLinked(code: string): boolean {
+  return code !== '' && linkedCodes.value.has(code)
 }
 
-function exportRows() {
-  downloadEntries(meta.key)
+const PHOTO_TODO_TEXT: Record<PhotoReadinessState, string> = {
+  missing: '补拍并登记影像',
+  'pending-number': '已拍摄影像需分配编号后归档',
+  'needs-retake': '存在需重拍影像，重拍前不计齐备',
+  ready: '—',
+}
+function photoTodoText(state: PhotoReadinessState): string {
+  return PHOTO_TODO_TEXT[state]
 }
 
-function openCreate() {
-  errorMessage.value = '影像档案登记入口尚未接入审批流'
-}
-
-function runAction(action: string, row: EntryRow) {
-  errorMessage.value = ''
-  const result = applyAction(meta.key, Number(row.id), action)
-  if (!result.ok) {
-    errorMessage.value = result.message
-    return
-  }
-  reload()
-}
-
-function reload() {
-  errorMessage.value = ''
-  try {
-    const payload = listEntries(meta.key, filters.value)
-    rows.value = payload.items
-    total.value = payload.total
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '影像记录列表读取失败'
-  }
-}
-
-onMounted(reload)
+onMounted(refresh)
 </script>

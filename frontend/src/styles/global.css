@@ -35,3 +35,30 @@ body { margin: 0; background: #f6f8fb; color: #1f2937; }
 .error-text { color: #b42318; }
 .status-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 10px; font-size: 12px; color: var(--muted); }
 .legend-item { background: #eef2f7; border-radius: 999px; padding: 2px 10px; }
+
+/* 遗迹工作区：三处入口共用 */
+.ws-boundary { display: flex; justify-content: space-between; align-items: center; gap: 12px; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; }
+.ws-error { background: #fef3f2; border: 1px solid #fda29b; color: #b42318; }
+.ws-notice { background: #ecfdf3; border: 1px solid #6ce9a6; color: #027a48; }
+.ws-empty { background: #fff; border: 1px dashed var(--border); color: var(--muted); }
+.ws-boundary-actions { display: flex; gap: 8px; }
+.stat-warn .stat-value { color: #b42318; }
+.ws-policy-note { font-size: 12px; color: var(--muted); background: #f1f5f9; border-radius: 6px; padding: 8px 12px; margin: 0 0 12px; }
+.ws-table { border: 1px solid var(--border); }
+.ws-table tr.row-abnormal { background: #fffdf5; }
+.ws-table tr.row-warn { background: #fef3f2; }
+.ws-table .ws-select { font-size: 12px; padding: 2px 4px; }
+.ws-table .tag { display: inline-block; margin-left: 6px; font-size: 11px; border-radius: 999px; padding: 1px 8px; }
+.tag-history { background: #e0e7ff; color: #3730a3; }
+.tag-policy { background: #f1f5f9; color: var(--muted); }
+.tag-warn { background: #fee4e2; color: #b42318; }
+.cell-warn, .att-bad { color: #b42318; font-weight: 600; }
+.att-ok { color: #027a48; }
+.ws-att { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.ws-att-list { display: flex; flex-wrap: wrap; gap: 4px; max-width: 320px; }
+.ws-chip { display: inline-block; background: #eef2f7; border-radius: 4px; padding: 1px 6px; font-size: 12px; }
+.ws-gates { position: relative; }
+.ws-gates button.link:disabled { color: #94a3b8; cursor: not-allowed; text-decoration: none; }
+.ws-reasons { list-style: none; margin: 6px 0 0; padding: 6px 8px; background: #fef3f2; border-radius: 6px; color: #b42318; font-size: 11px; }
+.ws-section-title { font-size: 14px; margin: 18px 0 8px; }
+.btn:disabled, .link:disabled { cursor: default; }

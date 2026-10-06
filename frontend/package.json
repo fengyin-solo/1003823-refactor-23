@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit",
+    "check:workspace": "tsc scripts/check-workspace.ts --outDir node_modules/.tmp/tsc --module commonjs --target ES2020 --moduleResolution node --esModuleInterop --skipLibCheck --lib ES2020,DOM --types node && node node_modules/.tmp/tsc/scripts/check-workspace.js"
   },
   "dependencies": {
     "pinia": "^2.1.7",
